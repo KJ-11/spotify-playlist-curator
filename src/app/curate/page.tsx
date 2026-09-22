@@ -6,6 +6,7 @@ import { useState, useCallback } from "react";
 import { CurateButton } from "@/components/curate-button";
 import { PipelineProgress } from "@/components/pipeline-progress";
 import { ListView } from "@/components/list-view";
+import { VibeMap } from "@/components/vibe-map";
 import { ViewToggle } from "@/components/view-toggle";
 import type {
   TrackWithFeatures,
@@ -175,7 +176,22 @@ export default function CuratePage() {
             />
           )}
           {view === "map" && (
-            <p className="text-zinc-500 text-center py-12">Vibe map coming next</p>
+            <VibeMap
+              clusters={result.clusters}
+              onMoveTrack={(trackId, fromId, toId) => {
+                const source = result.clusters.find((c) => c.id === fromId);
+                const track = source?.tracks.find((t) => t.track.id === trackId);
+                if (!track) return;
+                setResult({
+                  ...result,
+                  clusters: result.clusters.map((c) => {
+                    if (c.id === fromId) return { ...c, tracks: c.tracks.filter((t) => t.track.id !== trackId) };
+                    if (c.id === toId) return { ...c, tracks: [...c.tracks, { ...track, clusterId: toId }] };
+                    return c;
+                  }),
+                });
+              }}
+            />
           )}
         </div>
       )}
