@@ -9,7 +9,7 @@ interface PushPlaylist {
   coverImageBase64: string | null;
 }
 
-async function spotifyFetch(url: string, accessToken: string, options: RequestInit = {}) {
+async function spotifyFetch(url: string, accessToken: string, options: RequestInit = {}, retries = 3): Promise<Response> {
   const res = await fetch(url, {
     ...options,
     headers: {
@@ -18,10 +18,10 @@ async function spotifyFetch(url: string, accessToken: string, options: RequestIn
       ...options.headers,
     },
   });
-  if (res.status === 429) {
+  if (res.status === 429 && retries > 0) {
     const retryAfter = parseInt(res.headers.get("Retry-After") ?? "1", 10);
     await new Promise((r) => setTimeout(r, retryAfter * 1000));
-    return spotifyFetch(url, accessToken, options);
+    return spotifyFetch(url, accessToken, options, retries - 1);
   }
   return res;
 }

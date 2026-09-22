@@ -1,4 +1,5 @@
 "use client";
+import Link from "next/link";
 import { signIn, signOut, useSession } from "next-auth/react";
 
 export function LoginButton() {
@@ -6,6 +7,12 @@ export function LoginButton() {
   if (session) {
     return (
       <div className="flex items-center gap-4">
+        <Link
+          href="/curate"
+          className="px-6 py-3 bg-green-600 hover:bg-green-500 text-white font-medium rounded-full transition"
+        >
+          Go to Curator
+        </Link>
         <span className="text-zinc-400 text-sm">{session.user?.name}</span>
         <button
           onClick={() => signOut()}

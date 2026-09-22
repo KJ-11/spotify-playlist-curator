@@ -24,37 +24,41 @@ export function PushDialog({
     setPushing(true);
     setError(null);
 
-    const { generateCoverArtCSS, renderCoverToBase64 } = await import("@/lib/cover-art");
+    try {
+      const { generateCoverArtCSS, renderCoverToBase64 } = await import("@/lib/cover-art");
 
-    const playlists = await Promise.all(
-      clusters
-        .filter((c) => c.tracks.length > 0)
-        .map(async (c) => {
-          const { colors, angle } = generateCoverArtCSS(c.centroid);
-          const coverImageBase64 = await renderCoverToBase64(colors, angle, c.name);
-          return {
-            name: c.name,
-            trackUris: c.tracks.map((t) => `spotify:track:${t.track.id}`),
-            coverImageBase64,
-          };
-        })
-    );
+      const playlists = await Promise.all(
+        clusters
+          .filter((c) => c.tracks.length > 0)
+          .map(async (c) => {
+            const { colors, angle } = generateCoverArtCSS(c.centroid);
+            const coverImageBase64 = await renderCoverToBase64(colors, angle, c.name);
+            return {
+              name: c.name,
+              trackUris: c.tracks.map((t) => `spotify:track:${t.track.id}`),
+              coverImageBase64,
+            };
+          })
+      );
 
-    const res = await fetch("/api/push", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ playlists }),
-    });
+      const res = await fetch("/api/push", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ playlists }),
+      });
 
-    if (!res.ok) {
-      setError("Failed to create playlists");
+      if (!res.ok) {
+        setError("Failed to create playlists");
+        return;
+      }
+
+      const data = await res.json();
+      setResults(data.results);
+    } catch {
+      setError("Something went wrong. Please try again.");
+    } finally {
       setPushing(false);
-      return;
     }
-
-    const data = await res.json();
-    setResults(data.results);
-    setPushing(false);
   };
 
   return (

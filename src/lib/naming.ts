@@ -39,7 +39,7 @@ export async function generatePlaylistName(
     messages: [{ role: "user", content: buildNamingPrompt(cluster) }],
   });
   const text =
-    message.content[0].type === "text" ? message.content[0].text : "";
+    message.content[0]?.type === "text" ? message.content[0].text : "";
   return text.trim().replace(/^["']|["']$/g, "");
 }
 

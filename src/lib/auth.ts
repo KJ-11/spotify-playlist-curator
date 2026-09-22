@@ -45,6 +45,9 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
           refresh_token: token.refreshToken,
         }),
       });
+      if (!response.ok) {
+        return { ...token, accessToken: undefined, refreshToken: undefined, expiresAt: 0 };
+      }
       const data = await response.json();
       return {
         ...token,

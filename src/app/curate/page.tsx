@@ -60,7 +60,7 @@ export default function CuratePage() {
   const [pipelineStep, setPipelineStep] = useState(-1);
   const [result, setResult] = useState<CurationResult | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [view, setView] = useState<"map" | "list">("list");
+  const [view, setView] = useState<"map" | "list">("map");
   const [showPush, setShowPush] = useState(false);
 
   if (status === "unauthenticated") redirect("/");
