@@ -7,6 +7,11 @@ export async function GET() {
   if (!session?.accessToken) {
     return NextResponse.json({ error: "Not authenticated" }, { status: 401 });
   }
-  const tracks = await fetchAllTracks(session.accessToken as string);
-  return NextResponse.json({ tracks, count: tracks.length });
+  try {
+    const tracks = await fetchAllTracks(session.accessToken as string);
+    return NextResponse.json({ tracks, count: tracks.length });
+  } catch (error) {
+    console.error("Failed to fetch tracks:", error);
+    return NextResponse.json({ error: "Failed to fetch tracks" }, { status: 500 });
+  }
 }

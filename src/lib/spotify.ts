@@ -12,6 +12,9 @@ async function spotifyFetch(url: string, accessToken: string, retries = 3): Prom
       await new Promise((r) => setTimeout(r, retryAfter * 1000));
       continue;
     }
+    if (!res.ok) {
+      throw new Error(`Spotify API request failed with status ${res.status}: ${url}`);
+    }
     return res;
   }
   throw new Error(`Spotify API failed after ${retries} retries: ${url}`);
@@ -26,12 +29,22 @@ export function deduplicateTracks(tracks: SpotifyTrack[]): SpotifyTrack[] {
   });
 }
 
-export function buildAudioFeatureBatches(ids: string[]): string[][] {
-  const batches: string[][] = [];
-  for (let i = 0; i < ids.length; i += 100) {
-    batches.push(ids.slice(i, i + 100));
+function chunk<T>(items: T[], size: number): T[][] {
+  const batches: T[][] = [];
+  for (let i = 0; i < items.length; i += size) {
+    batches.push(items.slice(i, i + size));
   }
   return batches;
+}
+
+export function buildAudioFeatureBatches(ids: string[]): string[][] {
+  return chunk(ids, 100);
+}
+
+// Spotify's /v1/artists endpoint allows a maximum of 50 IDs per request
+// (unlike /v1/audio-features, which allows 100), so it needs its own batch size.
+function buildArtistBatches(ids: string[]): string[][] {
+  return chunk(ids, 50);
 }
 
 async function fetchRecentlyPlayed(accessToken: string): Promise<SpotifyTrack[]> {
@@ -102,7 +115,7 @@ async function fetchArtistGenres(
   accessToken: string
 ): Promise<Map<string, string[]>> {
   const map = new Map<string, string[]>();
-  const batches = buildAudioFeatureBatches(artistIds); // reuse 100-batch logic
+  const batches = buildArtistBatches(artistIds);
   for (const batch of batches) {
     const res = await spotifyFetch(
       `${SPOTIFY_API}/artists?ids=${batch.join(",")}`,
