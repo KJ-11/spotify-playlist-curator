@@ -35,6 +35,9 @@ export async function POST(req: NextRequest) {
 
   try {
     const meRes = await spotifyFetch(`${SPOTIFY_API}/me`, accessToken);
+    if (!meRes.ok) {
+      throw new Error(`Failed to fetch user profile: ${meRes.status}`);
+    }
     const me = await meRes.json();
     const userId = me.id;
 
