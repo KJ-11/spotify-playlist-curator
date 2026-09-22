@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import type { Cluster } from "@/lib/types";
 import { TrackRow } from "./track-row";
 
@@ -27,6 +27,8 @@ export function ClusterCard({
   const [editing, setEditing] = useState(false);
   const [name, setName] = useState(cluster.name);
   const [dragOver, setDragOver] = useState(false);
+
+  useEffect(() => { setName(cluster.name); }, [cluster.name]);
 
   const topArtists = (() => {
     const counts = new Map<string, number>();
