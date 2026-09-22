@@ -22,7 +22,10 @@ export async function POST(req: NextRequest) {
     const names = await generatePlaylistNames(clusters);
     return NextResponse.json({ names });
   } catch (error) {
-    const message = error instanceof Error ? error.message : "Unknown error";
-    return NextResponse.json({ error: message }, { status: 500 });
+    console.error("Failed to generate playlist names:", error);
+    return NextResponse.json(
+      { error: "Failed to generate playlist names" },
+      { status: 500 }
+    );
   }
 }
