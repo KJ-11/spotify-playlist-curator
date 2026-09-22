@@ -12,7 +12,6 @@ import type {
   Cluster,
   CurationResult,
 } from "@/lib/types";
-import { VIBE_DIMENSIONS } from "@/lib/types";
 import { generateCoverArtCSS } from "@/lib/cover-art";
 
 function buildClusters(
@@ -64,6 +63,7 @@ export default function CuratePage() {
     setError(null);
     setPipelineStep(0);
 
+    try {
     const tracksRes = await fetch("/api/tracks");
     if (!tracksRes.ok) { setError("Failed to fetch tracks"); return; }
     const { tracks } = await tracksRes.json() as { tracks: TrackWithFeatures[] };
@@ -84,12 +84,17 @@ export default function CuratePage() {
       body: JSON.stringify({ vibeVectors }),
     });
     if (!clusterRes.ok) { setError("Failed to cluster tracks"); return; }
-    const { assignments, centroids, positions2d, k } = await clusterRes.json();
+    const { assignments, centroids, positions2d } = await clusterRes.json() as {
+      assignments: number[];
+      centroids: VibeVector[];
+      positions2d: { x: number; y: number }[];
+      k: number;
+    };
 
     setPipelineStep(3);
-    const clusterIds = [...new Set(assignments as number[])].sort((a, b) => a - b);
+    const clusterIds = [...new Set(assignments)].sort((a, b) => a - b);
     const clusterSignatures = clusterIds.map((clusterId) => {
-      const indices = (assignments as number[])
+      const indices = assignments
         .map((a, i) => (a === clusterId ? i : -1))
         .filter((i) => i >= 0);
       const clusterTracks = indices.map((i) => tracks[i]);
@@ -120,6 +125,10 @@ export default function CuratePage() {
     const clusters = buildClusters(tracks, vibeVectors, assignments, centroids, positions2d, names);
     setResult({ clusters, totalTracks: tracks.length });
     setPipelineStep(-1);
+    } catch {
+      setError("Something went wrong. Please try again.");
+      setPipelineStep(-1);
+    }
   }, []);
 
   if (status === "loading") return null;
