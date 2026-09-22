@@ -8,6 +8,7 @@ import { PipelineProgress } from "@/components/pipeline-progress";
 import { ListView } from "@/components/list-view";
 import { VibeMap } from "@/components/vibe-map";
 import { ViewToggle } from "@/components/view-toggle";
+import { PushDialog } from "@/components/push-dialog";
 import type {
   TrackWithFeatures,
   VibeVector,
@@ -60,6 +61,7 @@ export default function CuratePage() {
   const [result, setResult] = useState<CurationResult | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [view, setView] = useState<"map" | "list">("list");
+  const [showPush, setShowPush] = useState(false);
 
   if (status === "unauthenticated") redirect("/");
 
@@ -167,7 +169,15 @@ export default function CuratePage() {
             <p className="text-zinc-400 text-sm">
               {result.totalTracks} tracks → {result.clusters.length} playlists
             </p>
-            <ViewToggle view={view} onToggle={setView} />
+            <div className="flex items-center gap-3">
+              <ViewToggle view={view} onToggle={setView} />
+              <button
+                onClick={() => setShowPush(true)}
+                className="px-5 py-2 bg-green-600 hover:bg-green-500 text-white text-sm font-medium rounded-full transition"
+              >
+                Create Playlists
+              </button>
+            </div>
           </div>
           {view === "list" && (
             <ListView
@@ -194,6 +204,13 @@ export default function CuratePage() {
             />
           )}
         </div>
+      )}
+
+      {showPush && result && (
+        <PushDialog
+          clusters={result.clusters}
+          onClose={() => setShowPush(false)}
+        />
       )}
     </main>
   );
