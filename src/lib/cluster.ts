@@ -61,30 +61,39 @@ export function splitLargeClusters(
   assignments: number[],
   vectors: VibeVector[],
   centroids: VibeVector[],
-  maxSize: number
+  maxSize: number,
+  maxIterations = 20
 ): { assignments: number[]; centroids: VibeVector[] } {
-  const result = [...assignments];
-  const newCentroids = [...centroids];
-  const counts = new Map<number, number>();
-  for (const a of result) counts.set(a, (counts.get(a) ?? 0) + 1);
+  let result = [...assignments];
+  let newCentroids = [...centroids];
 
-  let nextId = Math.max(...result) + 1;
+  for (let iter = 0; iter < maxIterations; iter++) {
+    const counts = new Map<number, number>();
+    for (const a of result) counts.set(a, (counts.get(a) ?? 0) + 1);
 
-  for (const [clusterId, count] of counts) {
-    if (count <= maxSize) continue;
-    const indices = result
-      .map((a, i) => (a === clusterId ? i : -1))
-      .filter((i) => i >= 0);
-    const clusterVectors = indices.map((i) => vibeVectorToArray(vectors[i]));
-    const sub = kmeans(clusterVectors, 2, { initialization: "kmeans++" });
-    for (let j = 0; j < indices.length; j++) {
-      if (sub.clusters[j] === 1) {
-        result[indices[j]] = nextId;
+    const oversized = [...counts.entries()].filter(([, count]) => count > maxSize);
+    if (oversized.length === 0) break;
+
+    let nextId = Math.max(...result) + 1;
+
+    for (const [clusterId, count] of oversized) {
+      if (count <= maxSize) continue;
+      const indices = result
+        .map((a, i) => (a === clusterId ? i : -1))
+        .filter((i) => i >= 0);
+      const clusterVectors = indices.map((i) => vibeVectorToArray(vectors[i]));
+      const sub = kmeans(clusterVectors, 2, { initialization: "kmeans++" });
+      for (let j = 0; j < indices.length; j++) {
+        if (sub.clusters[j] === 1) {
+          result[indices[j]] = nextId;
+        }
       }
+      newCentroids[clusterId] = arrayToVibeVector(sub.centroids[0]);
+      newCentroids.push(arrayToVibeVector(sub.centroids[1]));
+      nextId++;
     }
-    newCentroids.push(arrayToVibeVector(sub.centroids[1]));
-    nextId++;
   }
+
   return { assignments: result, centroids: newCentroids };
 }
 
@@ -97,9 +106,10 @@ export function clusterTracks(vectors: VibeVector[]): {
   const data = vectors.map(vibeVectorToArray);
   const result = kmeans(data, k, { initialization: "kmeans++" });
 
-  const centroids = result.centroids.map(arrayToVibeVector);
-  let { assignments } = mergeSmallClusters(result.clusters, centroids, 5);
-  ({ assignments } = splitLargeClusters(
+  let centroids = result.centroids.map(arrayToVibeVector);
+  let assignments: number[];
+  ({ assignments, centroids } = mergeSmallClusters(result.clusters, centroids, 5));
+  ({ assignments, centroids } = splitLargeClusters(
     assignments,
     vectors,
     centroids,
@@ -109,6 +119,7 @@ export function clusterTracks(vectors: VibeVector[]): {
   const uniqueIds = [...new Set(assignments)];
   const idMap = new Map(uniqueIds.map((id, i) => [id, i]));
   const normalized = assignments.map((a) => idMap.get(a)!);
+  const finalCentroids = uniqueIds.map((id) => centroids[id]);
 
-  return { assignments: normalized, centroids, k: uniqueIds.length };
+  return { assignments: normalized, centroids: finalCentroids, k: uniqueIds.length };
 }
