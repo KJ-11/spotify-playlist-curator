@@ -5,6 +5,8 @@ import { redirect } from "next/navigation";
 import { useState, useCallback } from "react";
 import { CurateButton } from "@/components/curate-button";
 import { PipelineProgress } from "@/components/pipeline-progress";
+import { ListView } from "@/components/list-view";
+import { ViewToggle } from "@/components/view-toggle";
 import type {
   TrackWithFeatures,
   VibeVector,
@@ -56,6 +58,7 @@ export default function CuratePage() {
   const [pipelineStep, setPipelineStep] = useState(-1);
   const [result, setResult] = useState<CurationResult | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [view, setView] = useState<"map" | "list">("list");
 
   if (status === "unauthenticated") redirect("/");
 
@@ -159,13 +162,21 @@ export default function CuratePage() {
 
       {result && (
         <div>
-          <p className="text-zinc-400 text-sm mb-6">
-            {result.totalTracks} tracks → {result.clusters.length} playlists
-          </p>
-          {/* List view and vibe map rendered by Tasks 7 and 8 */}
-          <pre className="text-xs text-zinc-500 overflow-auto">
-            {JSON.stringify(result.clusters.map(c => ({ name: c.name, tracks: c.tracks.length })), null, 2)}
-          </pre>
+          <div className="flex items-center justify-between mb-6">
+            <p className="text-zinc-400 text-sm">
+              {result.totalTracks} tracks → {result.clusters.length} playlists
+            </p>
+            <ViewToggle view={view} onToggle={setView} />
+          </div>
+          {view === "list" && (
+            <ListView
+              clusters={result.clusters}
+              onUpdateClusters={(clusters) => setResult({ ...result, clusters })}
+            />
+          )}
+          {view === "map" && (
+            <p className="text-zinc-500 text-center py-12">Vibe map coming next</p>
+          )}
         </div>
       )}
     </main>
