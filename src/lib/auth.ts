@@ -29,6 +29,9 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
       if (Date.now() < (token.expiresAt as number) * 1000) {
         return token;
       }
+      if (!token.refreshToken) {
+        return token;
+      }
       const response = await fetch("https://accounts.spotify.com/api/token", {
         method: "POST",
         headers: {
@@ -39,7 +42,7 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
         },
         body: new URLSearchParams({
           grant_type: "refresh_token",
-          refresh_token: token.refreshToken as string,
+          refresh_token: token.refreshToken,
         }),
       });
       const data = await response.json();
@@ -51,7 +54,10 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
       };
     },
     async session({ session, token }) {
-      return { ...session, accessToken: token.accessToken as string };
+      if (token.accessToken) {
+        session.accessToken = token.accessToken;
+      }
+      return session;
     },
   },
 });
