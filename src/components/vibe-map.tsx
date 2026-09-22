@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState, useCallback, useMemo } from "react";
+import { useEffect, useRef, useState, useMemo } from "react";
 import * as d3 from "d3";
 import type { Cluster, ClassifiedTrack } from "@/lib/types";
 
@@ -73,6 +73,7 @@ export function VibeMap({
       .scaleExtent([0.5, 8])
       .on("zoom", (event) => g.attr("transform", event.transform));
     svg.call(zoom);
+    svg.call(zoom.transform, d3.zoomIdentity);
 
     const visibleNodes = focusedCluster
       ? allNodes.filter((n) => n.clusterId === focusedCluster)
