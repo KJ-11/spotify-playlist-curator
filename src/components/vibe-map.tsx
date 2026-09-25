@@ -20,10 +20,9 @@ interface MapNode {
 
 export function VibeMap({
   clusters,
-  onMoveTrack,
 }: {
   clusters: Cluster[];
-  onMoveTrack: (trackId: string, fromClusterId: string, toClusterId: string) => void;
+  onMoveTrack?: (trackId: string, fromClusterId: string, toClusterId: string) => void;
 }) {
   const svgRef = useRef<SVGSVGElement>(null);
   const [focusedCluster, setFocusedCluster] = useState<string | null>(null);

@@ -1,4 +1,4 @@
-import { describe, it, expect, vi } from "vitest";
+import { describe, it, expect } from "vitest";
 import { buildJevState, normalizeScore, DIMENSION_QUESTIONS } from "@/lib/jev";
 import type { TrackWithFeatures } from "@/lib/types";
 import { VIBE_DIMENSIONS } from "@/lib/types";

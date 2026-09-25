@@ -1,6 +1,6 @@
-import { describe, it, expect, vi, beforeEach } from "vitest";
+import { describe, it, expect } from "vitest";
 import { deduplicateTracks, buildAudioFeatureBatches } from "@/lib/spotify";
-import type { SpotifyTrack, AudioFeatures } from "@/lib/types";
+import type { SpotifyTrack } from "@/lib/types";
 
 const makeTrack = (id: string, name: string): SpotifyTrack => ({
   id,

@@ -64,8 +64,8 @@ export function splitLargeClusters(
   maxSize: number,
   maxIterations = 20
 ): { assignments: number[]; centroids: VibeVector[] } {
-  let result = [...assignments];
-  let newCentroids = [...centroids];
+  const result = [...assignments];
+  const newCentroids = [...centroids];
 
   for (let iter = 0; iter < maxIterations; iter++) {
     const counts = new Map<number, number>();
