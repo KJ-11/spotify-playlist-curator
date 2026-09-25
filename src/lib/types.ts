@@ -1,69 +1,49 @@
-export interface SpotifyTrack {
-  id: string;
-  name: string;
-  artists: { id: string; name: string }[];
-  album: {
-    name: string;
-    images: { url: string; width: number; height: number }[];
-  };
-  preview_url: string | null;
-  external_urls: { spotify: string };
-  popularity: number;
-  release_date: string;
-}
+/** Where a track showed up in the user's listening. Drives prioritisation and curation context. */
+export type TrackSource = "recent" | "top_short" | "top_medium" | "top_long" | "saved";
 
+/**
+ * Spotify-style audio features. Spotify removed `/audio-features` for development-mode
+ * apps, so these come from ReccoBeats, keyed by Spotify track id.
+ */
 export interface AudioFeatures {
   energy: number;
   valence: number;
-  tempo: number;
   danceability: number;
   acousticness: number;
   instrumentalness: number;
-  liveness: number;
   speechiness: number;
+  liveness: number;
+  tempo: number;
+  loudness: number;
 }
 
-export const VIBE_DIMENSIONS = [
-  "energy",
-  "valence",
-  "tension",
-  "depth",
-  "warmth",
-  "swagger",
-  "sensuality",
-  "nostalgia",
-  "movement",
-  "focus",
-  "social",
-  "intimacy",
-  "timeOfDay",
-] as const;
-
-export type VibeDimension = (typeof VIBE_DIMENSIONS)[number];
-
-export type VibeVector = Record<VibeDimension, number>;
-
-export interface TrackWithFeatures {
-  track: SpotifyTrack;
-  audioFeatures: AudioFeatures | null;
-  genres: string[];
+export interface LibraryTrack {
+  id: string;
+  uri: string;
+  name: string;
+  artists: string[];
+  album: string;
+  imageUrl: string | null;
+  year: number | null;
+  isrc: string | null;
+  spotifyUrl: string;
+  sources: TrackSource[];
+  /** Lifetime plays, only known when the library comes from a Spotify data export. */
+  playCount?: number;
+  features: AudioFeatures | null;
 }
 
-export interface ClassifiedTrack extends TrackWithFeatures {
-  vibeVector: VibeVector;
-  position2d: { x: number; y: number };
-  clusterId: string;
-}
-
-export interface Cluster {
+export interface CuratedPlaylist {
   id: string;
   name: string;
-  tracks: ClassifiedTrack[];
-  centroid: VibeVector;
-  coverArtDataUrl: string;
+  description: string;
+  trackIds: string[];
 }
 
-export interface CurationResult {
-  clusters: Cluster[];
-  totalTracks: number;
+export interface Curation {
+  playlists: CuratedPlaylist[];
+  unsorted: string[];
 }
+
+/** Hard ceiling on tracks sent for curation; keeps prompts, latency and cost bounded. */
+export const MAX_TRACKS_FOR_CURATION = 700;

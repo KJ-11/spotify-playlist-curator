@@ -1,216 +1,172 @@
 "use client";
 
-import { useSession } from "next-auth/react";
-import { redirect } from "next/navigation";
-import { useState, useCallback } from "react";
-import { CurateButton } from "@/components/curate-button";
-import { PipelineProgress } from "@/components/pipeline-progress";
-import { ListView } from "@/components/list-view";
-import { VibeMap } from "@/components/vibe-map";
-import { ViewToggle } from "@/components/view-toggle";
-import { PushDialog } from "@/components/push-dialog";
-import type {
-  TrackWithFeatures,
-  VibeVector,
-  ClassifiedTrack,
-  Cluster,
-  CurationResult,
-} from "@/lib/types";
-import { generateCoverArtCSS } from "@/lib/cover-art";
+import { signOut, useSession } from "next-auth/react";
+import { useRouter } from "next/navigation";
+import { useEffect, useState } from "react";
+import { CurationBoard } from "@/components/board/curation-board";
+import { SiteHeader } from "@/components/site-header";
+import { PushBadge } from "@/components/spotify/push-badge";
+import { ActionBar } from "@/components/ui/action-bar";
+import { ErrorCard } from "@/components/ui/error-card";
+import { ProgressSteps } from "@/components/ui/progress-steps";
+import { useCurationBoard } from "@/hooks/use-curation-board";
+import { usePushPlaylists } from "@/hooks/use-push-playlists";
+import { apiFetch, toClientError, type ClientApiError } from "@/lib/client/api";
+import type { Curation, LibraryTrack } from "@/lib/types";
 
-function buildClusters(
-  tracks: TrackWithFeatures[],
-  vibeVectors: VibeVector[],
-  assignments: number[],
-  centroids: VibeVector[],
-  positions2d: { x: number; y: number }[],
-  names: string[]
-): Cluster[] {
-  const clusterIds = [...new Set(assignments)].sort((a, b) => a - b);
+type Phase =
+  | { kind: "idle" }
+  | { kind: "library" }
+  | { kind: "curating"; trackCount: number; featureCount: number }
+  | { kind: "error"; error: ClientApiError };
 
-  return clusterIds.map((clusterId, idx) => {
-    const clusterTracks: ClassifiedTrack[] = [];
-    for (let i = 0; i < assignments.length; i++) {
-      if (assignments[i] === clusterId) {
-        clusterTracks.push({
-          ...tracks[i],
-          vibeVector: vibeVectors[i],
-          position2d: positions2d[i],
-          clusterId: String(clusterId),
-        });
-      }
-    }
-
-    const centroid = centroids[clusterId] ?? centroids[0];
-    const { colors, angle } = generateCoverArtCSS(centroid);
-    const gradient = `linear-gradient(${angle}deg, ${colors.join(", ")})`;
-
-    return {
-      id: String(clusterId),
-      name: names[idx] ?? `Playlist ${idx + 1}`,
-      tracks: clusterTracks,
-      centroid,
-      coverArtDataUrl: gradient,
-    };
-  });
-}
-
-export default function CuratePage() {
+/** Signed-in flow: Spotify library in, playlists created on the user's account out. */
+export default function SpotifyCuratePage() {
   const { data: session, status } = useSession();
-  const [pipelineStep, setPipelineStep] = useState(-1);
-  const [result, setResult] = useState<CurationResult | null>(null);
-  const [error, setError] = useState<string | null>(null);
-  const [view, setView] = useState<"map" | "list">("map");
-  const [showPush, setShowPush] = useState(false);
+  const router = useRouter();
+  const board = useCurationBoard("curator:spotify:v2");
+  const push = usePushPlaylists("curator:spotify:push:v2");
+  const [phase, setPhase] = useState<Phase>({ kind: "idle" });
 
-  if (status === "unauthenticated") redirect("/");
+  useEffect(() => {
+    if (status === "unauthenticated") router.replace("/");
+  }, [status, router]);
 
-  const runPipeline = useCallback(async () => {
-    setError(null);
-    setPipelineStep(0);
-
+  const curate = async (library: LibraryTrack[]) => {
+    setPhase({
+      kind: "curating",
+      trackCount: library.length,
+      featureCount: library.filter((t) => t.features).length,
+    });
     try {
-    const tracksRes = await fetch("/api/tracks");
-    if (!tracksRes.ok) { setError("Failed to fetch tracks"); return; }
-    const { tracks } = await tracksRes.json() as { tracks: TrackWithFeatures[] };
-
-    setPipelineStep(1);
-    const classifyRes = await fetch("/api/classify", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ tracks }),
-    });
-    if (!classifyRes.ok) { setError("Failed to classify tracks"); return; }
-    const { vibeVectors } = await classifyRes.json() as { vibeVectors: VibeVector[] };
-
-    setPipelineStep(2);
-    const clusterRes = await fetch("/api/cluster", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ vibeVectors }),
-    });
-    if (!clusterRes.ok) { setError("Failed to cluster tracks"); return; }
-    const { assignments, centroids, positions2d } = await clusterRes.json() as {
-      assignments: number[];
-      centroids: VibeVector[];
-      positions2d: { x: number; y: number }[];
-      k: number;
-    };
-
-    setPipelineStep(3);
-    const clusterIds = [...new Set(assignments)].sort((a, b) => a - b);
-    const clusterSignatures = clusterIds.map((clusterId) => {
-      const indices = assignments
-        .map((a, i) => (a === clusterId ? i : -1))
-        .filter((i) => i >= 0);
-      const clusterTracks = indices.map((i) => tracks[i]);
-      const artistCounts = new Map<string, number>();
-      const genreSet = new Set<string>();
-      for (const t of clusterTracks) {
-        for (const a of t.track.artists) {
-          artistCounts.set(a.name, (artistCounts.get(a.name) ?? 0) + 1);
-        }
-        for (const g of t.genres) genreSet.add(g);
-      }
-      const topArtists = [...artistCounts.entries()]
-        .sort((a, b) => b[1] - a[1])
-        .slice(0, 5)
-        .map(([name]) => name);
-      const topGenres = [...genreSet].slice(0, 3);
-      return { centroid: centroids[clusterId], topArtists, topGenres };
-    });
-
-    const nameRes = await fetch("/api/name", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ clusters: clusterSignatures }),
-    });
-    if (!nameRes.ok) { setError("Failed to name playlists"); return; }
-    const { names } = await nameRes.json() as { names: string[] };
-
-    const clusters = buildClusters(tracks, vibeVectors, assignments, centroids, positions2d, names);
-    setResult({ clusters, totalTracks: tracks.length });
-    setPipelineStep(-1);
-    } catch {
-      setError("Something went wrong. Please try again.");
-      setPipelineStep(-1);
+      const curation = await apiFetch<Curation>("/api/curate", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ tracks: library }),
+      });
+      push.reset();
+      board.setCuration(curation);
+      setPhase({ kind: "idle" });
+    } catch (error) {
+      setPhase({ kind: "error", error: toClientError(error) });
     }
-  }, []);
+  };
 
-  if (status === "loading") return null;
+  const run = async () => {
+    // Retrying a failed curation reuses the library already pulled.
+    if (board.tracks) return curate(board.tracks);
+    setPhase({ kind: "library" });
+    try {
+      const { tracks } = await apiFetch<{ tracks: LibraryTrack[] }>("/api/library");
+      board.setTracks(tracks);
+      await curate(tracks);
+    } catch (error) {
+      setPhase({ kind: "error", error: toClientError(error) });
+    }
+  };
+
+  const startOver = () => {
+    board.reset();
+    push.reset();
+    setPhase({ kind: "idle" });
+  };
+
+  if (status !== "authenticated" || !board.hydrated) return null;
+
+  const ready = phase.kind === "idle" && board.curation;
+  const isDone = (id: string) => push.states[id]?.state === "done";
+  const toPush = (board.curation?.playlists ?? [])
+    .filter((p) => !board.isSkipped(p.id) && p.trackIds.length > 0 && !isDone(p.id))
+    .map((playlist) => ({ playlist, tracks: board.tracksFor(playlist.trackIds) }));
+  const doneCount = Object.values(push.states).filter((s) => s.state === "done").length;
+  const failedCount = Object.values(push.states).filter((s) => s.state === "failed").length;
 
   return (
-    <main className="min-h-screen p-8 max-w-7xl mx-auto">
-      <header className="flex items-center justify-between mb-12">
-        <h1 className="text-2xl font-bold">Playlist Curator</h1>
-        <span className="text-zinc-400 text-sm">{session?.user?.name}</span>
-      </header>
+    <main className="mx-auto min-h-screen max-w-7xl px-4 pb-32 pt-6 sm:px-8">
+      <SiteHeader>
+        {ready && (
+          <button onClick={startOver} className="hover:text-zinc-100">
+            Start over
+          </button>
+        )}
+        <span className="hidden sm:inline">{session.user?.name}</span>
+        <button onClick={() => signOut({ callbackUrl: "/" })} className="hover:text-zinc-100">
+          Sign out
+        </button>
+      </SiteHeader>
 
-      {!result && pipelineStep < 0 && (
-        <div className="flex flex-col items-center justify-center gap-6 py-24">
-          <CurateButton onClick={runPipeline} disabled={false} />
-        </div>
-      )}
-
-      {pipelineStep >= 0 && <PipelineProgress currentStep={pipelineStep} />}
-
-      {error && (
-        <div className="text-center text-red-400 py-8">
-          <p>{error}</p>
-          <button onClick={runPipeline} className="mt-4 text-sm underline">
-            Try again
+      {phase.kind === "idle" && !board.curation && (
+        <div className="flex flex-col items-center gap-6 py-24 text-center">
+          <p className="max-w-md text-zinc-400">
+            We&apos;ll pull your recent plays, top tracks and liked songs, then sort them into playlists that
+            actually hang together. Takes a minute or two.
+          </p>
+          <button
+            onClick={run}
+            className="rounded-full bg-green-600 px-8 py-4 text-lg font-medium text-white transition hover:bg-green-500"
+          >
+            Curate my music
           </button>
         </div>
       )}
 
-      {result && (
-        <div>
-          <div className="flex items-center justify-between mb-6">
-            <p className="text-zinc-400 text-sm">
-              {result.totalTracks} tracks → {result.clusters.length} playlists
-            </p>
-            <div className="flex items-center gap-3">
-              <ViewToggle view={view} onToggle={setView} />
-              <button
-                onClick={() => setShowPush(true)}
-                className="px-5 py-2 bg-green-600 hover:bg-green-500 text-white text-sm font-medium rounded-full transition"
-              >
-                Create Playlists
-              </button>
-            </div>
-          </div>
-          {view === "list" && (
-            <ListView
-              clusters={result.clusters}
-              onUpdateClusters={(clusters) => setResult({ ...result, clusters })}
-            />
-          )}
-          {view === "map" && (
-            <VibeMap
-              clusters={result.clusters}
-              onMoveTrack={(trackId, fromId, toId) => {
-                const source = result.clusters.find((c) => c.id === fromId);
-                const track = source?.tracks.find((t) => t.track.id === trackId);
-                if (!track) return;
-                setResult({
-                  ...result,
-                  clusters: result.clusters.map((c) => {
-                    if (c.id === fromId) return { ...c, tracks: c.tracks.filter((t) => t.track.id !== trackId) };
-                    if (c.id === toId) return { ...c, tracks: [...c.tracks, { ...track, clusterId: toId }] };
-                    return c;
-                  }),
-                });
-              }}
-            />
-          )}
-        </div>
+      {phase.kind === "library" && (
+        <ProgressSteps
+          steps={[
+            { label: "Pulling your library from Spotify", detail: "Recent plays, top tracks, liked songs", state: "active" },
+            { label: "Curating playlists", state: "pending" },
+          ]}
+        />
       )}
 
-      {showPush && result && (
-        <PushDialog
-          clusters={result.clusters}
-          onClose={() => setShowPush(false)}
+      {phase.kind === "curating" && (
+        <ProgressSteps
+          steps={[
+            {
+              label: "Pulled your library",
+              detail: `${phase.trackCount} tracks · audio features for ${phase.featureCount}`,
+              state: "done",
+            },
+            { label: "Curating playlists", detail: "This can take a minute or two", state: "active" },
+          ]}
         />
+      )}
+
+      {phase.kind === "error" && <ErrorCard error={phase.error} onRetry={run} />}
+
+      {ready && (
+        <>
+          <CurationBoard
+            board={board}
+            isLocked={(id) => isDone(id) || push.states[id]?.state === "pending"}
+            renderAction={(p) => push.states[p.id] && <PushBadge push={push.states[p.id]} />}
+          />
+          <ActionBar
+            message={
+              push.fatalError
+                ? push.fatalError.message
+                : doneCount > 0
+                  ? `${doneCount} created on Spotify${failedCount ? ` · ${failedCount} failed` : ""}`
+                  : `${toPush.length} playlists will be created as private playlists.`
+            }
+          >
+            <button
+              onClick={() => push.push(toPush)}
+              disabled={push.pushing || toPush.length === 0}
+              className="rounded-full bg-green-600 px-6 py-2.5 text-sm font-medium text-white transition hover:bg-green-500 disabled:bg-zinc-800 disabled:text-zinc-500"
+            >
+              {push.pushing
+                ? "Creating…"
+                : toPush.length === 0
+                  ? doneCount > 0
+                    ? "All done"
+                    : "Nothing selected"
+                  : doneCount > 0 || failedCount > 0
+                    ? `Create remaining ${toPush.length}`
+                    : `Create ${toPush.length} playlists on Spotify`}
+            </button>
+          </ActionBar>
+        </>
       )}
     </main>
   );

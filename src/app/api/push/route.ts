@@ -1,103 +1,57 @@
-import { NextRequest, NextResponse } from "next/server";
-import { auth } from "@/lib/auth";
+import { NextResponse, type NextRequest } from "next/server";
+import { errorResponse, parseBody } from "@/lib/server/http";
+import { pushRequest } from "@/lib/server/schemas";
+import { requireAccessToken } from "@/lib/server/session";
+import { spotifyFetch, spotifyJson } from "@/lib/server/spotify/client";
 
-const SPOTIFY_API = "https://api.spotify.com/v1";
+export const maxDuration = 60;
 
-interface PushPlaylist {
-  name: string;
-  trackUris: string[];
-  coverImageBase64: string | null;
-}
-
-async function spotifyFetch(url: string, accessToken: string, options: RequestInit = {}, retries = 3): Promise<Response> {
-  const res = await fetch(url, {
-    ...options,
-    headers: {
-      Authorization: `Bearer ${accessToken}`,
-      "Content-Type": "application/json",
-      ...options.headers,
-    },
-  });
-  if (res.status === 429 && retries > 0) {
-    const retryAfter = parseInt(res.headers.get("Retry-After") ?? "1", 10);
-    await new Promise((r) => setTimeout(r, retryAfter * 1000));
-    return spotifyFetch(url, accessToken, options, retries - 1);
-  }
-  return res;
-}
-
+/**
+ * Creates one private playlist per request, so the client can show per-playlist progress
+ * and retry only the ones that failed.
+ */
 export async function POST(req: NextRequest) {
-  const session = await auth();
-  if (!session?.accessToken) {
-    return NextResponse.json({ error: "Not authenticated" }, { status: 401 });
-  }
-  const accessToken = session.accessToken as string;
-
   try {
-    const meRes = await spotifyFetch(`${SPOTIFY_API}/me`, accessToken);
-    if (!meRes.ok) {
-      throw new Error(`Failed to fetch user profile: ${meRes.status}`);
-    }
-    const me = await meRes.json();
-    const userId = me.id;
+    const accessToken = await requireAccessToken();
+    const { name, description, trackUris, coverImageBase64 } = await parseBody(req, pushRequest);
 
-    const { playlists } = (await req.json()) as { playlists: PushPlaylist[] };
-    const results = [];
-
-    for (const pl of playlists) {
-      const createRes = await spotifyFetch(
-        `${SPOTIFY_API}/users/${userId}/playlists`,
-        accessToken,
-        {
-          method: "POST",
-          body: JSON.stringify({
-            name: pl.name,
-            public: false,
-            description: "Created by Playlist Curator",
-          }),
-        }
-      );
-      if (!createRes.ok) {
-        throw new Error(`Failed to create playlist "${pl.name}": ${createRes.status}`);
+    const playlist = await spotifyJson<{ id: string; external_urls: { spotify: string } }>(
+      "/me/playlists",
+      accessToken,
+      {
+        method: "POST",
+        body: JSON.stringify({ name, description: description.replace(/\s+/g, " "), public: false }),
       }
-      const playlist = await createRes.json();
+    );
 
-      for (let i = 0; i < pl.trackUris.length; i += 100) {
-        const addTracksRes = await spotifyFetch(
-          `${SPOTIFY_API}/playlists/${playlist.id}/tracks`,
-          accessToken,
-          {
-            method: "POST",
-            body: JSON.stringify({ uris: pl.trackUris.slice(i, i + 100) }),
-          }
-        );
-        if (!addTracksRes.ok) {
-          throw new Error(`Failed to add tracks to playlist "${pl.name}": ${addTracksRes.status}`);
-        }
-      }
-
-      if (pl.coverImageBase64) {
-        await spotifyFetch(
-          `${SPOTIFY_API}/playlists/${playlist.id}/images`,
-          accessToken,
-          {
-            method: "PUT",
-            headers: { "Content-Type": "image/jpeg" },
-            body: pl.coverImageBase64,
-          }
-        );
-      }
-
-      results.push({
-        name: pl.name,
-        spotifyUrl: playlist.external_urls.spotify,
-        trackCount: pl.trackUris.length,
+    for (let i = 0; i < trackUris.length; i += 100) {
+      await spotifyFetch(`/playlists/${playlist.id}/items`, accessToken, {
+        method: "POST",
+        body: JSON.stringify({ uris: trackUris.slice(i, i + 100) }),
       });
     }
 
-    return NextResponse.json({ results });
+    // The cover is cosmetic: report a failed upload but keep the playlist.
+    let coverUploaded = false;
+    if (coverImageBase64) {
+      try {
+        await spotifyFetch(`/playlists/${playlist.id}/images`, accessToken, {
+          method: "PUT",
+          headers: { "Content-Type": "image/jpeg" },
+          body: coverImageBase64,
+        });
+        coverUploaded = true;
+      } catch (error) {
+        console.warn(`Cover upload failed for playlist ${playlist.id}:`, error);
+      }
+    }
+
+    return NextResponse.json({
+      spotifyUrl: playlist.external_urls.spotify,
+      trackCount: trackUris.length,
+      coverUploaded,
+    });
   } catch (error) {
-    console.error("Failed to push playlists to Spotify:", error);
-    return NextResponse.json({ error: "Failed to push playlists to Spotify" }, { status: 500 });
+    return errorResponse(error, "POST /api/push");
   }
 }
