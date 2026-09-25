@@ -1,4 +1,6 @@
-import { NextRequest, NextResponse } from "next/server";
+import { NextResponse, type NextRequest } from "next/server";
+import { clientIp, errorResponse } from "@/lib/server/http";
+import { enforceLimit } from "@/lib/server/rate-limit";
 
 // Spotify no longer returns preview_url for development-mode apps. Deezer serves
 // 30s previews without auth; its URLs are signed and expire after ~15 minutes,
@@ -20,6 +22,12 @@ async function deezer<T>(path: string): Promise<T | null> {
 }
 
 export async function GET(req: NextRequest) {
+  try {
+    await enforceLimit("preview", clientIp(req));
+  } catch (error) {
+    return errorResponse(error, "GET /api/preview");
+  }
+
   const isrc = req.nextUrl.searchParams.get("isrc");
   const artist = req.nextUrl.searchParams.get("artist") ?? "";
   const title = req.nextUrl.searchParams.get("title") ?? "";

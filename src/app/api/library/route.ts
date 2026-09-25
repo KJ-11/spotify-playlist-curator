@@ -1,23 +1,23 @@
-import { NextResponse } from "next/server";
-import { AppError, errorResponse } from "@/lib/api-error";
-import { fetchLibrary } from "@/lib/library";
-import { requireAccessToken } from "@/lib/session";
+import { NextResponse, type NextRequest } from "next/server";
+import { AppError } from "@/lib/errors";
+import { clientIp, errorResponse } from "@/lib/server/http";
+import { enforceLimit } from "@/lib/server/rate-limit";
+import { requireAccessToken } from "@/lib/server/session";
+import { fetchLibrary } from "@/lib/server/spotify/library";
 
 export const maxDuration = 120;
 
-export async function GET() {
+/** Signed-in flow: pulls the user's Spotify library and enriches it with audio features. */
+export async function GET(req: NextRequest) {
   try {
     const accessToken = await requireAccessToken();
+    await enforceLimit("library", clientIp(req));
     const tracks = await fetchLibrary(accessToken);
     if (tracks.length === 0) {
-      throw new AppError(
-        "EMPTY_LIBRARY",
-        "We couldn't find any tracks — play or like some music on Spotify first.",
-        422
-      );
+      throw new AppError("EMPTY_LIBRARY", "We couldn't find any tracks. Play or like some music on Spotify first.", 422);
     }
     return NextResponse.json({ tracks });
   } catch (error) {
-    return errorResponse(error, "Failed to fetch library");
+    return errorResponse(error, "GET /api/library");
   }
 }
