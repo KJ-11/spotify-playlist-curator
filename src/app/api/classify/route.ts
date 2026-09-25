@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
-import { classifyTracks } from "@/lib/jev";
+import { classifyTracksClaude as classifyTracks } from "@/lib/classify-claude";
 import type { TrackWithFeatures } from "@/lib/types";
 
 export async function POST(req: NextRequest) {
