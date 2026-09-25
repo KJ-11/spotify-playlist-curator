@@ -53,7 +53,7 @@ export function usePushPlaylists(storageKey: string) {
             name: playlist.name,
             description: playlist.description,
             trackUris: tracks.map((t) => t.uri),
-            coverImageBase64: renderCoverBase64(playlist.name, playlistColors(playlist.name, tracks)),
+            coverImageBase64: renderCoverBase64(playlist.name, playlistColors(playlist.id, tracks)),
           }),
         });
         setState(playlist.id, { state: "done", url: res.spotifyUrl, coverUploaded: res.coverUploaded });

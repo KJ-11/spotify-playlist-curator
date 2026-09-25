@@ -12,7 +12,8 @@ export default defineConfig({
   resolve: {
     alias: {
       "@": path.resolve(__dirname, "src"),
-      "server-only": path.resolve(__dirname, "src/test/server-only-stub.ts"),
+      // Server-only modules are imported directly in unit tests; use the package's no-op build.
+      "server-only": path.resolve(__dirname, "node_modules/server-only/empty.js"),
     },
   },
 });

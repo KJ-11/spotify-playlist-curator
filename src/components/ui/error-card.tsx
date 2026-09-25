@@ -30,7 +30,7 @@ export function ErrorCard({ error, onRetry }: { error: ClientApiError; onRetry: 
       <div className="mt-5 flex gap-3">
         {reconnect && (
           <button
-            onClick={() => signIn("spotify", { callbackUrl: "/curate" })}
+            onClick={() => signIn("spotify", { callbackUrl: "/spotify" })}
             className="rounded-full bg-green-600 px-5 py-2 text-sm font-medium text-white hover:bg-green-500"
           >
             Reconnect Spotify

@@ -10,13 +10,13 @@ export function ConnectSpotifyButton() {
 
   if (status === "authenticated") {
     return (
-      <Link href="/curate" className={className}>
+      <Link href="/spotify" className={className}>
         Continue to curator
       </Link>
     );
   }
   return (
-    <button onClick={() => signIn("spotify", { callbackUrl: "/curate" })} className={className}>
+    <button onClick={() => signIn("spotify", { callbackUrl: "/spotify" })} className={className}>
       Connect Spotify
     </button>
   );

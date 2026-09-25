@@ -1,0 +1,33 @@
+name: Production smoke tests
+
+on:
+  # Vercel reports each deployment back to GitHub; test production once it's live.
+  deployment_status:
+  # Daily, to catch third-party breakage (Spotify, ReccoBeats, Deezer) between deploys.
+  schedule:
+    - cron: "17 14 * * *"
+  workflow_dispatch:
+    inputs:
+      curate:
+        description: "Also run one real curation (spends a Claude call)"
+        type: boolean
+        default: false
+
+jobs:
+  smoke:
+    if: >-
+      github.event_name != 'deployment_status' ||
+      (github.event.deployment_status.state == 'success' &&
+       github.event.deployment_status.environment == 'Production')
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npm run test:smoke
+        env:
+          SMOKE_BASE_URL: ${{ vars.SMOKE_BASE_URL || 'https://spotify-playlist-curator-black.vercel.app' }}
+          SMOKE_CURATE: ${{ inputs.curate && '1' || '0' }}

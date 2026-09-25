@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { ConnectSpotifyButton } from "@/components/connect-spotify-button";
+import { ConnectSpotifyButton } from "@/components/spotify/connect-spotify-button";
 
 const AUTH_ERRORS: Record<string, string> = {
   AccessDenied: "Spotify sign-in was cancelled or denied.",
