@@ -5,9 +5,13 @@ import "./globals.css";
 
 const inter = Inter({ subsets: ["latin"] });
 
+const description =
+  "Turn your messy Spotify listening into playlists that actually hang together, grouped by genre, era, energy and mood, then named by Claude.";
+
 export const metadata: Metadata = {
   title: "Playlist Curator",
-  description: "Turn your Spotify listening habits into curated playlists",
+  description,
+  openGraph: { title: "Playlist Curator", description, type: "website" },
 };
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
