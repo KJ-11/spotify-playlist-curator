@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, afterEach } from "vitest";
-import { mergeSources, toLibraryTrack, type RawSpotifyTrack } from "./library";
+import { fetchLibrary, mergeSources, toLibraryTrack, type RawSpotifyTrack } from "./library";
 import { fetchAudioFeatures } from "../audio-features";
 
 // Mirrors a real Feb-2026 dev-mode track object: release_date lives on album,
@@ -94,5 +94,52 @@ describe("fetchAudioFeatures", () => {
     vi.stubGlobal("fetch", vi.fn(async () => new Response("nope", { status: 503 })));
     const map = await fetchAudioFeatures(["a", "b"]);
     expect(map.size).toBe(0);
+  });
+});
+
+describe("fetchLibrary resilience", () => {
+  afterEach(() => vi.unstubAllGlobals());
+
+  const page = (ids: string[]) => ({ items: ids.map((id) => raw(id)), next: null });
+  const savedPage = (ids: string[]) => ({ items: ids.map((id) => ({ track: raw(id) })), next: null });
+  const ids = (prefix: string, n: number) => Array.from({ length: n }, (_, i) => `${prefix}${i}`);
+
+  /** Routes Spotify URLs to canned responses; ReccoBeats returns nothing. */
+  const stubSpotify = (routes: Record<string, () => Response>) =>
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (url: string) => {
+        if (url.includes("reccobeats")) return new Response(JSON.stringify({ content: [] }));
+        const match = Object.keys(routes).find((k) => url.includes(k));
+        return match ? routes[match]() : new Response(JSON.stringify(page([])));
+      })
+    );
+
+  const quotaHit = () =>
+    new Response(JSON.stringify({ error: { reason: "QUOTA_EXCEEDED" } }), { status: 429, headers: { "Retry-After": "3600" } });
+
+  it("continues without a source that hit Spotify's quota when the rest is enough", async () => {
+    stubSpotify({
+      "/me/top/tracks": quotaHit,
+      "/me/tracks": () => new Response(JSON.stringify(savedPage(ids("s", 25)))),
+    });
+    const tracks = await fetchLibrary("token");
+    expect(tracks).toHaveLength(25);
+  });
+
+  it("fails when the surviving sources are too small to curate", async () => {
+    stubSpotify({
+      "/me/top/tracks": quotaHit,
+      "/me/tracks": () => new Response(JSON.stringify(savedPage(ids("s", 3)))),
+    });
+    await expect(fetchLibrary("token")).rejects.toMatchObject({ code: "SPOTIFY_RATE_LIMITED" });
+  });
+
+  it("always fails on an expired session", async () => {
+    stubSpotify({
+      "/me/player/recently-played": () => new Response("expired", { status: 401 }),
+      "/me/tracks": () => new Response(JSON.stringify(savedPage(ids("s", 50)))),
+    });
+    await expect(fetchLibrary("token")).rejects.toMatchObject({ code: "AUTH_EXPIRED" });
   });
 });

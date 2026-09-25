@@ -121,6 +121,7 @@ smoke/                   # production smoke tests
 - Pasting tracks into a playlist works in the Spotify **desktop** app only.
 - The full streaming-history export can take Spotify up to 30 days. The faster *Account data* export works too, with less history.
 - Some tracks have no audio features; they're curated from title and artist.
+- Spotify gives Development Mode apps a small request quota shared across the developer's account. Heavy use can pause the Connect Spotify flow for hours; the upload flow is unaffected.
 
 ## License
 

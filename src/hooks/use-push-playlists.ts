@@ -6,6 +6,8 @@ import { playlistColors, renderCoverBase64 } from "@/lib/client/cover";
 import type { CuratedPlaylist, LibraryTrack } from "@/lib/types";
 import { usePersistentState } from "./use-persistent-state";
 
+const FATAL_PUSH_ERRORS = new Set<ClientApiError["code"]>(["AUTH_EXPIRED", "NOT_ALLOWLISTED", "SPOTIFY_RATE_LIMITED"]);
+
 export type PushState =
   | { state: "pending" }
   | { state: "done"; url: string; coverUploaded: boolean }
@@ -60,8 +62,8 @@ export function usePushPlaylists(storageKey: string) {
       } catch (error) {
         const err = toClientError(error);
         setState(playlist.id, { state: "failed", message: err.message });
-        // Auth problems will fail every remaining playlist too: stop and surface them.
-        if (err.code === "AUTH_EXPIRED" || err.code === "NOT_ALLOWLISTED") {
+        // These will fail every remaining playlist too: stop and surface them.
+        if (FATAL_PUSH_ERRORS.has(err.code)) {
           setFatalError(err);
           break;
         }
