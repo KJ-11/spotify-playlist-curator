@@ -6,6 +6,7 @@ export type ErrorCode =
   | "SPOTIFY_ERROR"
   | "EMPTY_LIBRARY"
   | "CURATION_FAILED"
+  | "CURATOR_MISCONFIGURED"
   | "BAD_REQUEST"
   | "INTERNAL";
 

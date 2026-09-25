@@ -9,12 +9,14 @@ const TITLES: Partial<Record<ClientApiError["code"], string>> = {
   SPOTIFY_ERROR: "Spotify had a problem",
   EMPTY_LIBRARY: "Nothing to curate yet",
   CURATION_FAILED: "Curation didn't finish",
+  CURATOR_MISCONFIGURED: "Curator not configured",
   NETWORK: "Connection problem",
 };
 
 export function ErrorCard({ error, onRetry }: { error: ClientApiError; onRetry: () => void }) {
   const reconnect = error.code === "AUTH_EXPIRED";
-  const canRetry = !reconnect && error.code !== "NOT_ALLOWLISTED" && error.code !== "EMPTY_LIBRARY";
+  const canRetry =
+    !reconnect && !["NOT_ALLOWLISTED", "EMPTY_LIBRARY", "CURATOR_MISCONFIGURED"].includes(error.code);
 
   return (
     <div role="alert" className="mx-auto max-w-lg rounded-2xl border border-red-900/60 bg-red-950/30 p-6">

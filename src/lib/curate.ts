@@ -97,8 +97,16 @@ export function normalizeCuration(raw: RawCuration, tracks: LibraryTrack[]): Cur
   return { playlists, unsorted };
 }
 
+// Keys created outside a workspace must name one on every request.
+function createClient(): Anthropic {
+  const workspaceId = process.env.ANTHROPIC_WORKSPACE_ID;
+  return new Anthropic(
+    workspaceId ? { defaultHeaders: { "anthropic-workspace-id": workspaceId } } : {}
+  );
+}
+
 export async function curateLibrary(tracks: LibraryTrack[]): Promise<Curation> {
-  const client = new Anthropic();
+  const client = createClient();
   const trackList = tracks.map(formatTrackLine).join("\n");
 
   let message: Anthropic.Beta.BetaMessage;
@@ -123,6 +131,18 @@ export async function curateLibrary(tracks: LibraryTrack[]): Promise<Curation> {
     message = await stream.finalMessage();
   } catch (error) {
     console.error("Claude curation request failed:", error);
+    // Bad key, missing workspace, or an invalid request: retrying won't help.
+    if (
+      error instanceof Anthropic.AuthenticationError ||
+      error instanceof Anthropic.PermissionDeniedError ||
+      error instanceof Anthropic.BadRequestError
+    ) {
+      throw new AppError(
+        "CURATOR_MISCONFIGURED",
+        "The curator isn't set up correctly on the server (Anthropic API key). The app owner needs to fix this.",
+        500
+      );
+    }
     if (error instanceof Anthropic.RateLimitError) {
       throw new AppError("CURATION_FAILED", "The curator is rate limited right now. Try again in a minute.", 503);
     }
