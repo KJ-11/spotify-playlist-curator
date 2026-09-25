@@ -30,7 +30,10 @@ export async function GET(req: NextRequest) {
     if (track && !track.error) url = track.preview || undefined;
   }
   if (!url && artist && title) {
-    const q = encodeURIComponent(`artist:"${artist}" track:"${title}"`);
+    // Deezer's advanced `artist:"" track:""` syntax returns nothing; a plain query works.
+    // Strip "(feat. …)" / "- Remastered" suffixes that rarely match across catalogs.
+    const cleanTitle = title.replace(/\s*[([].*?[)\]]/g, "").replace(/\s+-\s+.*$/, "");
+    const q = encodeURIComponent(`${artist} ${cleanTitle}`);
     const search = await deezer<{ data?: DeezerTrack[] }>(`/search?q=${q}&limit=1`);
     url = search?.data?.[0]?.preview || undefined;
   }
