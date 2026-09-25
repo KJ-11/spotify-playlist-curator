@@ -11,7 +11,13 @@ import { ExportDropzone } from "@/components/upload/export-dropzone";
 import { useCurationBoard } from "@/hooks/use-curation-board";
 import { apiFetch, ClientApiError, toClientError } from "@/lib/client/api";
 import { buildLibraryFromExport, ExportParseError, readExportFiles } from "@/lib/client/spotify-export";
-import { MAX_TRACKS_FOR_CURATION, type AudioFeatures, type Curation, type LibraryTrack } from "@/lib/types";
+import {
+  MAX_TRACKS_FOR_CURATION,
+  MIN_TRACKS_FOR_CURATION,
+  type AudioFeatures,
+  type Curation,
+  type LibraryTrack,
+} from "@/lib/types";
 
 type Phase =
   | { kind: "idle" }
@@ -40,8 +46,11 @@ export default function UploadPage() {
     try {
       setPhase({ kind: "reading" });
       const summary = buildLibraryFromExport(await readExportFiles(files));
-      if (summary.tracks.length === 0) {
-        throw new ClientApiError("EMPTY_LIBRARY", "Your export didn't contain any tracks we could use.");
+      if (summary.tracks.length < MIN_TRACKS_FOR_CURATION) {
+        throw new ClientApiError(
+          "EMPTY_LIBRARY",
+          `Your export has ${summary.tracks.length} usable tracks; we need at least ${MIN_TRACKS_FOR_CURATION} to make playlists.`
+        );
       }
       // The export is already ranked by listening time; send the top slice.
       const library = summary.tracks.slice(0, MAX_TRACKS_FOR_CURATION);
