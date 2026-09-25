@@ -45,5 +45,8 @@ export interface Curation {
   unsorted: string[];
 }
 
+/** Below this there's nothing meaningful to group, and the model would return only "unsorted". */
+export const MIN_TRACKS_FOR_CURATION = 20;
+
 /** Hard ceiling on tracks sent for curation; keeps prompts, latency and cost bounded. */
 export const MAX_TRACKS_FOR_CURATION = 700;

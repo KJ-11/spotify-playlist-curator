@@ -1,6 +1,6 @@
 import "server-only";
 import { z } from "zod";
-import { MAX_TRACKS_FOR_CURATION } from "@/lib/types";
+import { MAX_TRACKS_FOR_CURATION, MIN_TRACKS_FOR_CURATION } from "@/lib/types";
 
 const spotifyId = z.string().regex(/^[A-Za-z0-9]{22}$/, "not a Spotify track id");
 
@@ -34,7 +34,10 @@ const libraryTrack = z.object({
 
 // Clients may send more than the curation cap; the server trims by priority.
 export const curateRequest = z.object({
-  tracks: z.array(libraryTrack).min(1).max(MAX_TRACKS_FOR_CURATION * 3),
+  tracks: z
+    .array(libraryTrack)
+    .min(MIN_TRACKS_FOR_CURATION, `need at least ${MIN_TRACKS_FOR_CURATION} tracks`)
+    .max(MAX_TRACKS_FOR_CURATION * 3),
 });
 
 export const enrichRequest = z.object({
