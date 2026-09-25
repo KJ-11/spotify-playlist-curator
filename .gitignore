@@ -44,3 +44,6 @@ next-env.d.ts
 # local tooling
 .claude/
 *.bak
+# agent tooling installed by integrations (e.g. `npx skills add`)
+.agents/
+skills-lock.json

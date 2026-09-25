@@ -39,7 +39,7 @@ export function CurationBoard({
               name={p.name}
               description={p.description}
               tracks={pTracks}
-              gradient={gradientCss(playlistColors(p.name, pTracks))}
+              gradient={gradientCss(playlistColors(p.id, pTracks))}
               selected={!board.isSkipped(p.id)}
               locked={isLocked(p.id)}
               action={renderAction?.(p, pTracks)}

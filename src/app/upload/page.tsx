@@ -3,7 +3,7 @@
 import { useState } from "react";
 import { CopyTracksButton } from "@/components/board/copy-tracks-button";
 import { CurationBoard } from "@/components/board/curation-board";
-import { SiteHeader } from "@/components/site-header";
+import { SiteHeader } from "@/components/ui/site-header";
 import { ActionBar } from "@/components/ui/action-bar";
 import { ErrorCard } from "@/components/ui/error-card";
 import { ProgressSteps, type Step } from "@/components/ui/progress-steps";

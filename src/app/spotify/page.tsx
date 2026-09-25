@@ -4,7 +4,7 @@ import { signOut, useSession } from "next-auth/react";
 import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 import { CurationBoard } from "@/components/board/curation-board";
-import { SiteHeader } from "@/components/site-header";
+import { SiteHeader } from "@/components/ui/site-header";
 import { PushBadge } from "@/components/spotify/push-badge";
 import { ActionBar } from "@/components/ui/action-bar";
 import { ErrorCard } from "@/components/ui/error-card";
@@ -21,7 +21,7 @@ type Phase =
   | { kind: "error"; error: ClientApiError };
 
 /** Signed-in flow: Spotify library in, playlists created on the user's account out. */
-export default function SpotifyCuratePage() {
+export default function SpotifyPage() {
   const { data: session, status } = useSession();
   const router = useRouter();
   const board = useCurationBoard("curator:spotify:v2");

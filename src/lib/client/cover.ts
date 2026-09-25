@@ -6,19 +6,26 @@ function hashString(s: string): number {
   return Math.abs(h);
 }
 
-// Derives a two-stop gradient from the playlist's average audio features:
-// valence sets warm vs. cool, energy sets saturation, acousticness softens.
-export function playlistColors(name: string, tracks: LibraryTrack[]): [string, string] {
+/** Golden-angle spacing keeps consecutive seeds (p0, p1, …) far apart on the colour wheel. */
+const GOLDEN_ANGLE = 137.508;
+
+/**
+ * Two-stop gradient for a playlist. The hue comes from a stable seed (the playlist id) so
+ * every playlist is visually distinct and renaming doesn't repaint it; the average audio
+ * features then shade it: valence warms or cools the hue, energy sets saturation, and
+ * acousticness lightens.
+ */
+export function playlistColors(seed: string, tracks: LibraryTrack[]): [string, string] {
   const withFeatures = tracks.filter((t) => t.features);
   const avg = (key: "valence" | "energy" | "acousticness") =>
     withFeatures.length
       ? withFeatures.reduce((s, t) => s + t.features![key], 0) / withFeatures.length
       : 0.5;
-  const jitter = (hashString(name) % 40) - 20;
-  const hue = Math.round(230 - avg("valence") * 200 + jitter);
-  const sat = Math.round(35 + avg("energy") * 50);
-  const light = Math.round(32 + avg("acousticness") * 18);
-  return [`hsl(${hue}, ${sat}%, ${light}%)`, `hsl(${hue + 45}, ${sat}%, ${Math.max(light - 14, 12)}%)`];
+  const base = (hashString(seed) * GOLDEN_ANGLE) % 360;
+  const hue = Math.round(base + (avg("valence") - 0.5) * 40);
+  const sat = Math.round(45 + avg("energy") * 40);
+  const light = Math.round(34 + avg("acousticness") * 14);
+  return [`hsl(${hue}, ${sat}%, ${light}%)`, `hsl(${hue + 40}, ${sat}%, ${Math.max(light - 14, 14)}%)`];
 }
 
 export function gradientCss(colors: [string, string]): string {

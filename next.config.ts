@@ -9,6 +9,11 @@ const securityHeaders = [
 
 const nextConfig: NextConfig = {
   poweredByHeader: false,
+  devIndicators: false,
+  // The signed-in flow used to live at /curate; keep old links and OAuth callbacks working.
+  async redirects() {
+    return [{ source: "/curate", destination: "/spotify", permanent: true }];
+  },
   async headers() {
     return [{ source: "/(.*)", headers: securityHeaders }];
   },
