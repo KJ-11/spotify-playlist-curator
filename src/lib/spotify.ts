@@ -98,10 +98,18 @@ async function fetchAudioFeatures(
   const map = new Map<string, AudioFeatures>();
   const batches = buildAudioFeatureBatches(ids);
   for (const batch of batches) {
-    const res = await spotifyFetch(
+    const res = await fetch(
       `${SPOTIFY_API}/audio-features?ids=${batch.join(",")}`,
-      accessToken
+      { headers: { Authorization: `Bearer ${accessToken}` } }
     );
+    if (res.status === 403) {
+      console.warn("Spotify audio-features endpoint returned 403 — skipping audio features");
+      return map;
+    }
+    if (!res.ok) {
+      console.warn(`Audio features request failed with status ${res.status} — skipping`);
+      return map;
+    }
     const data = await res.json();
     for (const af of data.audio_features) {
       if (af) map.set(af.id, af);
@@ -143,11 +151,9 @@ export async function fetchAllTracks(accessToken: string): Promise<TrackWithFeat
   const artistIds = [...new Set(allTracks.flatMap((t) => t.artists.map((a) => a.id)))];
   const genreMap = await fetchArtistGenres(artistIds, accessToken);
 
-  return allTracks
-    .filter((t) => audioFeaturesMap.has(t.id))
-    .map((track) => ({
-      track,
-      audioFeatures: audioFeaturesMap.get(track.id)!,
-      genres: [...new Set(track.artists.flatMap((a) => genreMap.get(a.id) ?? []))],
-    }));
+  return allTracks.map((track) => ({
+    track,
+    audioFeatures: audioFeaturesMap.get(track.id) ?? null,
+    genres: [...new Set(track.artists.flatMap((a) => genreMap.get(a.id) ?? []))],
+  }));
 }

@@ -13,9 +13,12 @@ function buildClassificationPrompt(tracks: TrackWithFeatures[]): string {
 
   const trackList = tracks.map((t, i) => {
     const s = buildJevState(t);
-    return `[${i}] "${s.trackName}" by ${s.artistNames.join(", ")} (${s.releaseYear}, pop=${s.popularity})
-  Genres: ${s.genres.join(", ") || "unknown"}
-  Audio: energy=${s.audioFeatures.energy}, valence=${s.audioFeatures.valence}, tempo=${s.audioFeatures.tempo}, dance=${s.audioFeatures.danceability}, acoustic=${s.audioFeatures.acousticness}, instrumental=${s.audioFeatures.instrumentalness}`;
+    let desc = `[${i}] "${s.trackName}" by ${s.artistNames.join(", ")} (${s.releaseYear}, pop=${s.popularity})
+  Genres: ${s.genres.join(", ") || "unknown"}`;
+    if (s.audioFeatures) {
+      desc += `\n  Audio: energy=${s.audioFeatures.energy}, valence=${s.audioFeatures.valence}, tempo=${s.audioFeatures.tempo}, dance=${s.audioFeatures.danceability}, acoustic=${s.audioFeatures.acousticness}, instrumental=${s.audioFeatures.instrumentalness}`;
+    }
+    return desc;
   }).join("\n");
 
   return `Score each track on 13 vibe dimensions. Use integer scores 0-4 for each dimension.

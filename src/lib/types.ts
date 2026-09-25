@@ -45,7 +45,7 @@ export type VibeVector = Record<VibeDimension, number>;
 
 export interface TrackWithFeatures {
   track: SpotifyTrack;
-  audioFeatures: AudioFeatures;
+  audioFeatures: AudioFeatures | null;
   genres: string[];
 }
 
