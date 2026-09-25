@@ -25,7 +25,7 @@ export function LoginButton() {
   }
   return (
     <button
-      onClick={() => signIn("spotify")}
+      onClick={() => signIn("spotify", { callbackUrl: "/curate" })}
       className="px-6 py-3 bg-green-600 hover:bg-green-500 text-white font-medium rounded-full transition"
     >
       Connect Spotify

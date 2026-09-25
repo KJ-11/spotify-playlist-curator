@@ -1,217 +1,338 @@
 "use client";
 
-import { useSession } from "next-auth/react";
-import { redirect } from "next/navigation";
-import { useState, useCallback } from "react";
-import { CurateButton } from "@/components/curate-button";
-import { PipelineProgress } from "@/components/pipeline-progress";
-import { ListView } from "@/components/list-view";
-import { VibeMap } from "@/components/vibe-map";
-import { ViewToggle } from "@/components/view-toggle";
-import { PushDialog } from "@/components/push-dialog";
-import type {
-  TrackWithFeatures,
-  VibeVector,
-  ClassifiedTrack,
-  Cluster,
-  CurationResult,
-} from "@/lib/types";
-import { generateCoverArtCSS } from "@/lib/cover-art";
+import { useSession, signOut } from "next-auth/react";
+import { useRouter } from "next/navigation";
+import { useCallback, useEffect, useMemo, useState } from "react";
+import { ErrorCard } from "@/components/error-card";
+import { PlaylistCard, type PushState } from "@/components/playlist-card";
+import { PlaylistTrackRow } from "@/components/playlist-track-row";
+import { ProgressSteps, type Step } from "@/components/progress-steps";
+import { apiFetch, ClientApiError } from "@/lib/client-api";
+import { gradientCss, playlistColors, renderCoverBase64 } from "@/lib/cover";
+import type { Curation, LibraryTrack } from "@/lib/library-types";
 
-function buildClusters(
-  tracks: TrackWithFeatures[],
-  vibeVectors: VibeVector[],
-  assignments: number[],
-  centroids: VibeVector[],
-  positions2d: { x: number; y: number }[],
-  names: string[]
-): Cluster[] {
-  const clusterIds = [...new Set(assignments)].sort((a, b) => a - b);
+const STORAGE_KEY = "curator:v1";
+const UNSORTED = "unsorted";
 
-  return clusterIds.map((clusterId, idx) => {
-    const clusterTracks: ClassifiedTrack[] = [];
-    for (let i = 0; i < assignments.length; i++) {
-      if (assignments[i] === clusterId) {
-        clusterTracks.push({
-          ...tracks[i],
-          vibeVector: vibeVectors[i],
-          position2d: positions2d[i],
-          clusterId: String(clusterId),
-        });
-      }
-    }
+type Phase =
+  | { kind: "idle" }
+  | { kind: "library" }
+  | { kind: "curating"; trackCount: number; featureCount: number }
+  | { kind: "ready" }
+  | { kind: "error"; error: ClientApiError };
 
-    const centroid = centroids[clusterId] ?? centroids[0];
-    const { colors, angle } = generateCoverArtCSS(centroid);
-    const gradient = `linear-gradient(${angle}deg, ${colors.join(", ")})`;
+interface Saved {
+  tracks: LibraryTrack[];
+  curation: Curation;
+  pushStates?: Record<string, PushState>;
+}
 
-    return {
-      id: String(clusterId),
-      name: names[idx] ?? `Playlist ${idx + 1}`,
-      tracks: clusterTracks,
-      centroid,
-      coverArtDataUrl: gradient,
-    };
-  });
+function loadSaved(): Saved | null {
+  try {
+    const raw = localStorage.getItem(STORAGE_KEY);
+    return raw ? (JSON.parse(raw) as Saved) : null;
+  } catch {
+    return null;
+  }
+}
+
+function save(data: Saved | null) {
+  try {
+    if (data) localStorage.setItem(STORAGE_KEY, JSON.stringify(data));
+    else localStorage.removeItem(STORAGE_KEY);
+  } catch {
+    // Storage full or blocked: the session still works, it just won't survive a reload.
+  }
 }
 
 export default function CuratePage() {
   const { data: session, status } = useSession();
-  const [pipelineStep, setPipelineStep] = useState(-1);
-  const [result, setResult] = useState<CurationResult | null>(null);
-  const [error, setError] = useState<string | null>(null);
-  const [view, setView] = useState<"map" | "list">("map");
-  const [showPush, setShowPush] = useState(false);
+  const router = useRouter();
+  const [phase, setPhase] = useState<Phase>({ kind: "idle" });
+  const [tracks, setTracks] = useState<LibraryTrack[] | null>(null);
+  const [curation, setCuration] = useState<Curation | null>(null);
+  const [skipped, setSkipped] = useState<Set<string>>(new Set());
+  const [pushStates, setPushStates] = useState<Record<string, PushState>>({});
+  const [pushing, setPushing] = useState(false);
+  const [pushError, setPushError] = useState<ClientApiError | null>(null);
 
-  if (status === "unauthenticated") redirect("/");
+  useEffect(() => {
+    if (status === "unauthenticated") router.replace("/");
+  }, [status, router]);
 
-  const runPipeline = useCallback(async () => {
-    setError(null);
-    setPipelineStep(0);
-
-    try {
-    const tracksRes = await fetch("/api/tracks");
-    if (!tracksRes.ok) { setError("Failed to fetch tracks"); return; }
-    const { tracks } = await tracksRes.json() as { tracks: TrackWithFeatures[] };
-
-    setPipelineStep(1);
-    const classifyRes = await fetch("/api/classify", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ tracks }),
-    });
-    if (!classifyRes.ok) { setError("Failed to classify tracks"); return; }
-    const { vibeVectors } = await classifyRes.json() as { vibeVectors: VibeVector[] };
-
-    setPipelineStep(2);
-    const clusterRes = await fetch("/api/cluster", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ vibeVectors }),
-    });
-    if (!clusterRes.ok) { setError("Failed to cluster tracks"); return; }
-    const { assignments, centroids, positions2d } = await clusterRes.json() as {
-      assignments: number[];
-      centroids: VibeVector[];
-      positions2d: { x: number; y: number }[];
-      k: number;
-    };
-
-    setPipelineStep(3);
-    const clusterIds = [...new Set(assignments)].sort((a, b) => a - b);
-    const clusterSignatures = clusterIds.map((clusterId) => {
-      const indices = assignments
-        .map((a, i) => (a === clusterId ? i : -1))
-        .filter((i) => i >= 0);
-      const clusterTracks = indices.map((i) => tracks[i]);
-      const artistCounts = new Map<string, number>();
-      const genreSet = new Set<string>();
-      for (const t of clusterTracks) {
-        for (const a of t.track.artists) {
-          artistCounts.set(a.name, (artistCounts.get(a.name) ?? 0) + 1);
-        }
-        for (const g of t.genres) genreSet.add(g);
-      }
-      const topArtists = [...artistCounts.entries()]
-        .sort((a, b) => b[1] - a[1])
-        .slice(0, 5)
-        .map(([name]) => name);
-      const topGenres = [...genreSet].slice(0, 3);
-      return { centroid: centroids[clusterId], topArtists, topGenres };
-    });
-
-    const nameRes = await fetch("/api/name", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ clusters: clusterSignatures }),
-    });
-    if (!nameRes.ok) { setError("Failed to name playlists"); return; }
-    const { names } = await nameRes.json() as { names: string[] };
-
-    const clusters = buildClusters(tracks, vibeVectors, assignments, centroids, positions2d, names);
-    setResult({ clusters, totalTracks: tracks.length });
-    setPipelineStep(-1);
-    } catch {
-      setError("Something went wrong. Please try again.");
-      setPipelineStep(-1);
+  useEffect(() => {
+    const saved = loadSaved();
+    if (saved) {
+      setTracks(saved.tracks);
+      setCuration(saved.curation);
+      // A playlist that was mid-creation when the page closed may or may not exist; let the user retry.
+      const restored = Object.fromEntries(
+        Object.entries(saved.pushStates ?? {}).filter(([, s]) => s.state === "done")
+      );
+      setPushStates(restored);
+      setPhase({ kind: "ready" });
     }
   }, []);
 
-  if (status === "loading") return null;
+  useEffect(() => {
+    if (tracks && curation) save({ tracks, curation, pushStates });
+  }, [tracks, curation, pushStates]);
+
+  const trackById = useMemo(() => new Map((tracks ?? []).map((t) => [t.id, t])), [tracks]);
+
+  const curate = useCallback(async (library: LibraryTrack[]) => {
+    setPhase({
+      kind: "curating",
+      trackCount: library.length,
+      featureCount: library.filter((t) => t.features).length,
+    });
+    try {
+      const result = await apiFetch<Curation>("/api/curate", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ tracks: library }),
+      });
+      setCuration(result);
+      setSkipped(new Set());
+      setPushStates({});
+      setPhase({ kind: "ready" });
+    } catch (error) {
+      setPhase({ kind: "error", error: toClientError(error) });
+    }
+  }, []);
+
+  const run = useCallback(async () => {
+    // Reuse an already-fetched library when retrying a failed curation.
+    if (tracks) return curate(tracks);
+    setPhase({ kind: "library" });
+    try {
+      const { tracks: library } = await apiFetch<{ tracks: LibraryTrack[] }>("/api/library");
+      setTracks(library);
+      await curate(library);
+    } catch (error) {
+      setPhase({ kind: "error", error: toClientError(error) });
+    }
+  }, [tracks, curate]);
+
+  const startOver = () => {
+    save(null);
+    setTracks(null);
+    setCuration(null);
+    setPushStates({});
+    setPushError(null);
+    setPhase({ kind: "idle" });
+  };
+
+  const rename = (id: string, name: string) =>
+    setCuration((c) => c && { ...c, playlists: c.playlists.map((p) => (p.id === id ? { ...p, name } : p)) });
+
+  const moveTrack = (trackId: string, toId: string) =>
+    setCuration((c) => {
+      if (!c) return c;
+      const playlists = c.playlists.map((p) => ({
+        ...p,
+        trackIds: p.id === toId
+          ? [...p.trackIds.filter((id) => id !== trackId), trackId]
+          : p.trackIds.filter((id) => id !== trackId),
+      }));
+      const unsorted = c.unsorted.filter((id) => id !== trackId);
+      if (toId === UNSORTED) unsorted.push(trackId);
+      return { playlists, unsorted };
+    });
+
+  const toggleSkipped = (id: string) =>
+    setSkipped((s) => {
+      const next = new Set(s);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+
+  const toPush = (curation?.playlists ?? []).filter(
+    (p) => !skipped.has(p.id) && p.trackIds.length > 0 && pushStates[p.id]?.state !== "done"
+  );
+
+  const pushAll = async () => {
+    setPushing(true);
+    setPushError(null);
+    for (const p of toPush) {
+      setPushStates((s) => ({ ...s, [p.id]: { state: "pending" } }));
+      const pTracks = p.trackIds.map((id) => trackById.get(id)).filter((t): t is LibraryTrack => !!t);
+      try {
+        const res = await apiFetch<{ spotifyUrl: string; coverUploaded: boolean }>("/api/push", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            name: p.name,
+            description: p.description,
+            trackUris: pTracks.map((t) => t.uri),
+            coverImageBase64: renderCoverBase64(p.name, playlistColors(p.name, pTracks)),
+          }),
+        });
+        setPushStates((s) => ({
+          ...s,
+          [p.id]: { state: "done", url: res.spotifyUrl, coverUploaded: res.coverUploaded },
+        }));
+      } catch (error) {
+        const err = toClientError(error);
+        setPushStates((s) => ({ ...s, [p.id]: { state: "failed", message: err.message } }));
+        // Auth problems will fail every remaining playlist too; stop and surface them.
+        if (err.code === "AUTH_EXPIRED" || err.code === "NOT_ALLOWLISTED") {
+          setPushError(err);
+          break;
+        }
+      }
+    }
+    setPushing(false);
+  };
+
+  if (status !== "authenticated") return null;
+
+  const pushedCount = Object.values(pushStates).filter((s) => s.state === "done").length;
+  const failedCount = Object.values(pushStates).filter((s) => s.state === "failed").length;
 
   return (
-    <main className="min-h-screen p-8 max-w-7xl mx-auto">
-      <header className="flex items-center justify-between mb-12">
-        <h1 className="text-2xl font-bold">Playlist Curator</h1>
-        <span className="text-zinc-400 text-sm">{session?.user?.name}</span>
+    <main className="mx-auto min-h-screen max-w-7xl px-4 pb-32 pt-6 sm:px-8">
+      <header className="mb-10 flex items-center justify-between">
+        <h1 className="text-lg font-bold">Playlist Curator</h1>
+        <div className="flex items-center gap-4 text-sm text-zinc-400">
+          {phase.kind === "ready" && (
+            <button onClick={startOver} className="hover:text-zinc-100">
+              Start over
+            </button>
+          )}
+          <span className="hidden sm:inline">{session.user?.name}</span>
+          <button onClick={() => signOut({ callbackUrl: "/" })} className="hover:text-zinc-100">
+            Sign out
+          </button>
+        </div>
       </header>
 
-      {!result && pipelineStep < 0 && (
-        <div className="flex flex-col items-center justify-center gap-6 py-24">
-          <CurateButton onClick={runPipeline} disabled={false} />
-        </div>
-      )}
-
-      {pipelineStep >= 0 && <PipelineProgress currentStep={pipelineStep} />}
-
-      {error && (
-        <div className="text-center text-red-400 py-8">
-          <p>{error}</p>
-          <button onClick={runPipeline} className="mt-4 text-sm underline">
-            Try again
+      {phase.kind === "idle" && (
+        <div className="flex flex-col items-center gap-6 py-24 text-center">
+          <p className="max-w-md text-zinc-400">
+            We&apos;ll pull your recent plays, top tracks and liked songs, then sort them into playlists
+            that actually hang together. Takes about a minute.
+          </p>
+          <button
+            onClick={run}
+            className="rounded-full bg-green-600 px-8 py-4 text-lg font-medium text-white transition hover:bg-green-500"
+          >
+            Curate my music
           </button>
         </div>
       )}
 
-      {result && (
-        <div>
-          <div className="flex items-center justify-between mb-6">
-            <p className="text-zinc-400 text-sm">
-              {result.totalTracks} tracks → {result.clusters.length} playlists
-            </p>
-            <div className="flex items-center gap-3">
-              <ViewToggle view={view} onToggle={setView} />
+      {(phase.kind === "library" || phase.kind === "curating") && (
+        <ProgressSteps steps={progressSteps(phase)} />
+      )}
+
+      {phase.kind === "error" && <ErrorCard error={phase.error} onRetry={run} />}
+
+      {phase.kind === "ready" && curation && (
+        <>
+          <p className="mb-6 text-sm text-zinc-400">
+            {tracks?.length ?? 0} tracks → {curation.playlists.length} playlists
+            {curation.unsorted.length > 0 && ` · ${curation.unsorted.length} unsorted`}. Rename anything,
+            move tracks with ⋯, untick what you don&apos;t want.
+          </p>
+
+          <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-3">
+            {curation.playlists.map((p) => {
+              const pTracks = p.trackIds.map((id) => trackById.get(id)).filter((t): t is LibraryTrack => !!t);
+              return (
+                <PlaylistCard
+                  key={p.id}
+                  name={p.name}
+                  description={p.description}
+                  tracks={pTracks}
+                  gradient={gradientCss(playlistColors(p.name, pTracks))}
+                  selected={!skipped.has(p.id)}
+                  push={pushStates[p.id]}
+                  targets={[
+                    ...curation.playlists.filter((o) => o.id !== p.id).map((o) => ({ id: o.id, name: o.name })),
+                    { id: UNSORTED, name: "Unsorted" },
+                  ]}
+                  onRename={(name) => rename(p.id, name)}
+                  onToggleSelected={() => toggleSkipped(p.id)}
+                  onMoveTrack={moveTrack}
+                />
+              );
+            })}
+          </div>
+
+          {curation.unsorted.length > 0 && (
+            <section className="mt-10">
+              <h2 className="mb-1 font-semibold">Unsorted</h2>
+              <p className="mb-3 text-sm text-zinc-500">
+                Didn&apos;t fit any playlist convincingly. Move any you want to keep; the rest are left out.
+              </p>
+              <ul className="grid grid-cols-1 gap-x-4 md:grid-cols-2 xl:grid-cols-3">
+                {curation.unsorted.map((id) => {
+                  const t = trackById.get(id);
+                  if (!t) return null;
+                  return (
+                    <PlaylistTrackRow
+                      key={id}
+                      track={t}
+                      targets={curation.playlists.map((o) => ({ id: o.id, name: o.name }))}
+                      onMove={(toId) => moveTrack(id, toId)}
+                    />
+                  );
+                })}
+              </ul>
+            </section>
+          )}
+
+          <div className="fixed inset-x-0 bottom-0 border-t border-zinc-800 bg-zinc-950/95 backdrop-blur">
+            <div className="mx-auto flex max-w-7xl flex-wrap items-center justify-between gap-3 px-4 py-4 sm:px-8">
+              <p className="text-sm text-zinc-400">
+                {pushError
+                  ? pushError.message
+                  : pushedCount > 0
+                    ? `${pushedCount} created on Spotify${failedCount ? ` · ${failedCount} failed` : ""}`
+                    : `${toPush.length} playlists will be created as private playlists.`}
+              </p>
               <button
-                onClick={() => setShowPush(true)}
-                className="px-5 py-2 bg-green-600 hover:bg-green-500 text-white text-sm font-medium rounded-full transition"
+                onClick={pushAll}
+                disabled={pushing || toPush.length === 0}
+                className="rounded-full bg-green-600 px-6 py-2.5 text-sm font-medium text-white transition hover:bg-green-500 disabled:bg-zinc-800 disabled:text-zinc-500"
               >
-                Create Playlists
+                {pushing
+                  ? "Creating…"
+                  : toPush.length === 0
+                    ? pushedCount > 0 ? "All done" : "Nothing selected"
+                    : failedCount > 0 || pushedCount > 0
+                      ? `Create remaining ${toPush.length}`
+                      : `Create ${toPush.length} playlists on Spotify`}
               </button>
             </div>
           </div>
-          {view === "list" && (
-            <ListView
-              clusters={result.clusters}
-              onUpdateClusters={(clusters) => setResult({ ...result, clusters })}
-            />
-          )}
-          {view === "map" && (
-            <VibeMap
-              clusters={result.clusters}
-              onMoveTrack={(trackId, fromId, toId) => {
-                const source = result.clusters.find((c) => c.id === fromId);
-                const track = source?.tracks.find((t) => t.track.id === trackId);
-                if (!track) return;
-                setResult({
-                  ...result,
-                  clusters: result.clusters.map((c) => {
-                    if (c.id === fromId) return { ...c, tracks: c.tracks.filter((t) => t.track.id !== trackId) };
-                    if (c.id === toId) return { ...c, tracks: [...c.tracks, { ...track, clusterId: toId }] };
-                    return c;
-                  }),
-                });
-              }}
-            />
-          )}
-        </div>
-      )}
-
-      {showPush && result && (
-        <PushDialog
-          clusters={result.clusters}
-          onClose={() => setShowPush(false)}
-        />
+        </>
       )}
     </main>
   );
+}
+
+function toClientError(error: unknown): ClientApiError {
+  return error instanceof ClientApiError
+    ? error
+    : new ClientApiError("INTERNAL", "Something went wrong. Try again.");
+}
+
+function progressSteps(phase: Extract<Phase, { kind: "library" | "curating" }>): Step[] {
+  if (phase.kind === "library") {
+    return [
+      { label: "Pulling your library from Spotify", detail: "Recent plays, top tracks, liked songs", state: "active" },
+      { label: "Curating playlists", state: "pending" },
+    ];
+  }
+  return [
+    {
+      label: "Pulled your library",
+      detail: `${phase.trackCount} tracks · audio features for ${phase.featureCount}`,
+      state: "done",
+    },
+    { label: "Curating playlists", detail: "Listening closely — this can take a minute or two", state: "active" },
+  ];
 }

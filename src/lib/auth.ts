@@ -16,6 +16,8 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
       authorization: `https://accounts.spotify.com/authorize?scope=${encodeURIComponent(scopes)}`,
     }),
   ],
+  // Send OAuth errors (e.g. user cancelled, not allowlisted) back to the landing page.
+  pages: { error: "/" },
   callbacks: {
     async jwt({ token, account }) {
       if (account) {
@@ -24,6 +26,7 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
           accessToken: account.access_token,
           refreshToken: account.refresh_token,
           expiresAt: account.expires_at,
+          error: undefined,
         };
       }
       if (Date.now() < (token.expiresAt as number) * 1000) {
@@ -46,7 +49,8 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
         }),
       });
       if (!response.ok) {
-        return { ...token, accessToken: undefined, refreshToken: undefined, expiresAt: 0 };
+        console.error(`Spotify token refresh failed: ${response.status}`);
+        return { ...token, accessToken: undefined, error: "RefreshTokenError" as const };
       }
       const data = await response.json();
       return {
@@ -54,12 +58,14 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
         accessToken: data.access_token,
         refreshToken: data.refresh_token ?? token.refreshToken,
         expiresAt: Math.floor(Date.now() / 1000) + data.expires_in,
+        error: undefined,
       };
     },
     async session({ session, token }) {
       if (token.accessToken) {
         session.accessToken = token.accessToken;
       }
+      session.error = token.error;
       return session;
     },
   },
