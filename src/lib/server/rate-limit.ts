@@ -2,6 +2,7 @@ import "server-only";
 import { Ratelimit } from "@upstash/ratelimit";
 import { Redis } from "@upstash/redis";
 import { AppError } from "@/lib/errors";
+import { describeWait } from "@/lib/format";
 
 // The Vercel Marketplace integration may expose either naming scheme.
 const url = process.env.UPSTASH_REDIS_REST_URL ?? process.env.KV_REST_API_URL;
@@ -30,13 +31,6 @@ export type LimitBucket = keyof typeof LIMITS;
 
 const isProduction = process.env.VERCEL_ENV === "production";
 
-function describeReset(resetMs: number): string {
-  const minutes = Math.ceil((resetMs - Date.now()) / 60_000);
-  if (minutes <= 1) return "in a minute";
-  if (minutes < 90) return `in ${minutes} minutes`;
-  return `in about ${Math.round(minutes / 60)} hours`;
-}
-
 /**
  * Consumes one token from `bucket` for `key`, throwing RATE_LIMITED when exhausted.
  * Without Redis, limits are skipped in development; in production, unlimited public
@@ -55,7 +49,7 @@ export async function enforceLimit(bucket: LimitBucket, key: string, { failClose
     const message =
       bucket === "curateGlobal"
         ? "The curator has hit its daily limit. Try again tomorrow."
-        : `You've hit the limit for now. Try again ${describeReset(reset)}.`;
+        : `You've hit the limit for now. Try again ${describeWait((reset - Date.now()) / 1000)}.`;
     throw new AppError("RATE_LIMITED", message, 429);
   }
 }

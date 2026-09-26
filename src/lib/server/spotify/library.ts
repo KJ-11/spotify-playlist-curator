@@ -1,4 +1,6 @@
 import "server-only";
+import { AppError } from "@/lib/errors";
+import { MIN_TRACKS_FOR_CURATION } from "@/lib/types";
 import { spotifyJson } from "./client";
 import { fetchAudioFeatures } from "../audio-features";
 import type { LibraryTrack, TrackSource } from "@/lib/types";
@@ -25,7 +27,9 @@ interface Paged<T> {
   next: string | null;
 }
 
-const SAVED_TRACKS_CAP = 500;
+// Each page of liked songs is one request against Spotify's dev-mode quota; 300 (6 pages)
+// alongside top and recent tracks is plenty of signal for curation.
+const SAVED_TRACKS_CAP = 300;
 
 async function fetchAllPages<T>(firstUrl: string, accessToken: string, cap = Infinity): Promise<T[]> {
   const items: T[] = [];
@@ -38,13 +42,20 @@ async function fetchAllPages<T>(firstUrl: string, accessToken: string, cap = Inf
   return items.slice(0, cap);
 }
 
-async function fetchSources(accessToken: string): Promise<[TrackSource, RawSpotifyTrack | null][]> {
+type SourceEntries = [TrackSource, RawSpotifyTrack | null][];
+
+/**
+ * Fetches every listening source independently. A source that fails (e.g. one endpoint
+ * hitting Spotify's quota) is skipped as long as the rest still make a usable library;
+ * auth problems always fail the whole pull, since every source would hit them.
+ */
+async function fetchSources(accessToken: string): Promise<SourceEntries> {
   const topRange = (range: string, source: TrackSource) =>
     fetchAllPages<RawSpotifyTrack>(`/me/top/tracks?time_range=${range}&limit=50`, accessToken).then(
       (tracks) => tracks.map((t) => [source, t] as [TrackSource, RawSpotifyTrack])
     );
 
-  const results = await Promise.all([
+  const settled = await Promise.allSettled([
     // Spotify only exposes the last 50 plays, so one page is all there is.
     spotifyJson<{ items: { track: RawSpotifyTrack | null }[] }>(
       "/me/player/recently-played?limit=50",
@@ -57,7 +68,18 @@ async function fetchSources(accessToken: string): Promise<[TrackSource, RawSpoti
       (items) => items.map((i) => ["saved", i.track] as [TrackSource, RawSpotifyTrack | null])
     ),
   ]);
-  return results.flat();
+
+  const entries = settled.flatMap((r) => (r.status === "fulfilled" ? r.value : []));
+  const failures = settled.flatMap((r) => (r.status === "rejected" ? [r.reason as unknown] : []));
+  if (failures.length === 0) return entries;
+
+  const fatal = failures.find(
+    (e) => e instanceof AppError && (e.code === "AUTH_EXPIRED" || e.code === "NOT_ALLOWLISTED")
+  );
+  if (fatal || mergeSources(entries).length < MIN_TRACKS_FOR_CURATION) throw fatal ?? failures[0];
+
+  console.warn(`Library pull continuing without ${failures.length} of ${settled.length} sources:`, failures);
+  return entries;
 }
 
 function isUsable(t: RawSpotifyTrack | null): t is RawSpotifyTrack & { id: string } {
